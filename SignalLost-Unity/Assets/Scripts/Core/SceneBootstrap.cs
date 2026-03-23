@@ -145,10 +145,10 @@ namespace SignalLost
             var flashlight = flashlightObj.AddComponent<Light>();
             flashlight.type = LightType.Spot;
             flashlight.color = new Color(0.95f, 0.9f, 0.8f);
-            flashlight.intensity = 2f;
-            flashlight.range = 25f;
-            flashlight.spotAngle = 45f;
-            flashlight.innerSpotAngle = 25f;
+            flashlight.intensity = 1.2f;
+            flashlight.range = 30f;
+            flashlight.spotAngle = 55f;
+            flashlight.innerSpotAngle = 30f;
             flashlight.enabled = true;
 
             // PlayerCharacter component
@@ -195,15 +195,15 @@ namespace SignalLost
             marker.transform.localScale = new Vector3(3f, 0.1f, 3f);
             marker.name = "AirlockMarker";
 
-            // Light
+            // Light — subtle floor glow, not blinding
             var lightObj = new GameObject("AirlockLight");
             lightObj.transform.SetParent(airlock.transform);
             lightObj.transform.localPosition = new Vector3(0, 3f, 0);
             var light = lightObj.AddComponent<Light>();
             light.type = LightType.Point;
-            light.color = new Color(1f, 0.3f, 0.1f);
-            light.intensity = 1f;
-            light.range = 8f;
+            light.color = new Color(1f, 0.4f, 0.15f);
+            light.intensity = 0.2f;
+            light.range = 5f;
 
             // Set in GameManager
             var airlockField = typeof(GameManager).GetField("airlockTransform",

@@ -328,33 +328,68 @@ namespace SignalLost
         // GEOMETRY SPAWNING
         // ====================================================================
 
+        private const float DOORWAY_WIDTH = 3f;
+        private const float CORRIDOR_WIDTH = 3f;
+        private const float CORRIDOR_HEIGHT = 3.5f;
+
+        // Determine which wall side a connected room is on relative to this room
+        private enum WallSide { East, West, North, South }
+
+        private WallSide GetWallSide(Vector3 roomPos, Vector3 connectedPos)
+        {
+            Vector3 delta = connectedPos - roomPos;
+            if (Mathf.Abs(delta.x) > Mathf.Abs(delta.z))
+                return delta.x > 0 ? WallSide.East : WallSide.West;
+            else
+                return delta.z > 0 ? WallSide.North : WallSide.South;
+        }
+
         private void SpawnRoomGeometry()
         {
+            // Track which corridors we've already created (avoid duplicates)
+            var createdCorridors = new HashSet<string>();
+
             foreach (var node in roomGraph.Values)
             {
-                // Create room with primitive geometry as placeholder
-                GameObject room = CreateProceduralRoom(node);
-                node.gameObject = room;
-                spawnedRoomObjects.Add(room);
-
-                // Spawn corridor connections
+                // Figure out which walls need doorways
+                var doorwaySides = new HashSet<WallSide>();
                 foreach (string connectedID in node.connectedRoomIDs)
                 {
+                    if (connectedID == node.roomID) continue; // Skip self-loops
                     if (roomGraph.ContainsKey(connectedID))
                     {
                         var other = roomGraph[connectedID];
-                        // Only create corridor from lower-depth to higher-depth to avoid duplicates
-                        if (node.depthFromAirlock < other.depthFromAirlock)
-                        {
-                            GameObject corridor = CreateCorridor(node.worldPosition, other.worldPosition);
-                            spawnedRoomObjects.Add(corridor);
-                        }
+                        doorwaySides.Add(GetWallSide(node.worldPosition, other.worldPosition));
+                    }
+                }
+
+                GameObject room = CreateProceduralRoom(node, doorwaySides);
+                node.gameObject = room;
+                spawnedRoomObjects.Add(room);
+
+                // Spawn corridor connections (only once per pair)
+                foreach (string connectedID in node.connectedRoomIDs)
+                {
+                    if (connectedID == node.roomID) continue;
+                    if (!roomGraph.ContainsKey(connectedID)) continue;
+
+                    string pairKey = string.Compare(node.roomID, connectedID) < 0
+                        ? $"{node.roomID}_{connectedID}" : $"{connectedID}_{node.roomID}";
+
+                    if (!createdCorridors.Contains(pairKey))
+                    {
+                        createdCorridors.Add(pairKey);
+                        var other = roomGraph[connectedID];
+                        GameObject corridor = CreateCorridor(
+                            node.worldPosition, node.module.roomSize,
+                            other.worldPosition, other.module.roomSize);
+                        spawnedRoomObjects.Add(corridor);
                     }
                 }
             }
         }
 
-        private GameObject CreateProceduralRoom(RoomNode node)
+        private GameObject CreateProceduralRoom(RoomNode node, HashSet<WallSide> doorwaySides)
         {
             GameObject room = new GameObject($"Room_{node.roomID}");
             room.transform.position = node.worldPosition;
@@ -372,35 +407,52 @@ namespace SignalLost
             var ceiling = GameObject.CreatePrimitive(PrimitiveType.Cube);
             ceiling.transform.SetParent(room.transform);
             ceiling.transform.localPosition = new Vector3(0, size.y, 0);
-            ceiling.transform.localScale = new Vector3(size.x, 0.2f, size.z);
+            ceiling.transform.localScale = new Vector3(size.x + 0.4f, 0.2f, size.z + 0.4f);
             ceiling.name = "Ceiling";
 
-            // Walls
-            CreateWall(room.transform, new Vector3(size.x / 2, size.y / 2, 0), new Vector3(0.2f, size.y, size.z), "WallEast");
-            CreateWall(room.transform, new Vector3(-size.x / 2, size.y / 2, 0), new Vector3(0.2f, size.y, size.z), "WallWest");
-            CreateWall(room.transform, new Vector3(0, size.y / 2, size.z / 2), new Vector3(size.x, size.y, 0.2f), "WallNorth");
-            CreateWall(room.transform, new Vector3(0, size.y / 2, -size.z / 2), new Vector3(size.x, size.y, 0.2f), "WallSouth");
+            // Walls with doorway gaps
+            // East wall (X+)
+            if (doorwaySides.Contains(WallSide.East))
+                CreateWallWithDoorway(room.transform, size, WallSide.East);
+            else
+                CreateSolidWall(room.transform, new Vector3(size.x / 2, size.y / 2, 0), new Vector3(0.2f, size.y, size.z), "WallEast");
 
-            // Emergency lighting
+            // West wall (X-)
+            if (doorwaySides.Contains(WallSide.West))
+                CreateWallWithDoorway(room.transform, size, WallSide.West);
+            else
+                CreateSolidWall(room.transform, new Vector3(-size.x / 2, size.y / 2, 0), new Vector3(0.2f, size.y, size.z), "WallWest");
+
+            // North wall (Z+)
+            if (doorwaySides.Contains(WallSide.North))
+                CreateWallWithDoorway(room.transform, size, WallSide.North);
+            else
+                CreateSolidWall(room.transform, new Vector3(0, size.y / 2, size.z / 2), new Vector3(size.x, size.y, 0.2f), "WallNorth");
+
+            // South wall (Z-)
+            if (doorwaySides.Contains(WallSide.South))
+                CreateWallWithDoorway(room.transform, size, WallSide.South);
+            else
+                CreateSolidWall(room.transform, new Vector3(0, size.y / 2, -size.z / 2), new Vector3(size.x, size.y, 0.2f), "WallSouth");
+
+            // Emergency lighting — dim point light on ceiling
             if (node.module.hasEmergencyLighting)
             {
                 var lightObj = new GameObject("EmergencyLight");
                 lightObj.transform.SetParent(room.transform);
-                lightObj.transform.localPosition = new Vector3(0, size.y - 0.5f, 0);
+                lightObj.transform.localPosition = new Vector3(0, size.y - 0.3f, 0);
                 var light = lightObj.AddComponent<Light>();
                 light.type = LightType.Point;
-                light.color = new Color(1f, 0.3f, 0.1f); // Warm orange emergency
-                light.intensity = 0.5f;
-                light.range = Mathf.Max(size.x, size.z) * 0.8f;
+                light.color = new Color(1f, 0.4f, 0.15f);
+                light.intensity = 0.3f;
+                light.range = Mathf.Max(size.x, size.z) * 0.6f;
             }
 
-            // Set layer for interaction
             room.layer = LayerMask.NameToLayer("Default");
-
             return room;
         }
 
-        private void CreateWall(Transform parent, Vector3 localPos, Vector3 scale, string name)
+        private void CreateSolidWall(Transform parent, Vector3 localPos, Vector3 scale, string name)
         {
             var wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
             wall.transform.SetParent(parent);
@@ -409,26 +461,170 @@ namespace SignalLost
             wall.name = name;
         }
 
-        private GameObject CreateCorridor(Vector3 from, Vector3 to)
+        /// <summary>
+        /// Creates a wall with a centered doorway gap.
+        /// Splits the wall into: left segment, right segment, and a header above the doorway.
+        /// </summary>
+        private void CreateWallWithDoorway(Transform parent, Vector3 roomSize, WallSide side)
+        {
+            float h = roomSize.y;
+            float doorH = Mathf.Min(CORRIDOR_HEIGHT, h - 0.3f);
+            float doorW = DOORWAY_WIDTH;
+
+            bool isXWall = (side == WallSide.East || side == WallSide.West);
+            float wallLength = isXWall ? roomSize.z : roomSize.x;
+            float wallThickness = 0.2f;
+
+            float xSign = 0f;
+            float zSign = 0f;
+            if (side == WallSide.East) xSign = 1f;
+            else if (side == WallSide.West) xSign = -1f;
+            else if (side == WallSide.North) zSign = 1f;
+            else if (side == WallSide.South) zSign = -1f;
+
+            float wallOffset = isXWall ? roomSize.x / 2f : roomSize.z / 2f;
+
+            // Left segment
+            float leftLen = (wallLength - doorW) / 2f;
+            if (leftLen > 0.1f)
+            {
+                Vector3 leftPos, leftScale;
+                if (isXWall)
+                {
+                    leftPos = new Vector3(xSign * wallOffset, h / 2f, -(leftLen / 2f + doorW / 2f));
+                    leftScale = new Vector3(wallThickness, h, leftLen);
+                }
+                else
+                {
+                    leftPos = new Vector3(-(leftLen / 2f + doorW / 2f), h / 2f, zSign * wallOffset);
+                    leftScale = new Vector3(leftLen, h, wallThickness);
+                }
+                CreateSolidWall(parent, leftPos, leftScale, $"Wall{side}_Left");
+            }
+
+            // Right segment
+            float rightLen = (wallLength - doorW) / 2f;
+            if (rightLen > 0.1f)
+            {
+                Vector3 rightPos, rightScale;
+                if (isXWall)
+                {
+                    rightPos = new Vector3(xSign * wallOffset, h / 2f, (rightLen / 2f + doorW / 2f));
+                    rightScale = new Vector3(wallThickness, h, rightLen);
+                }
+                else
+                {
+                    rightPos = new Vector3((rightLen / 2f + doorW / 2f), h / 2f, zSign * wallOffset);
+                    rightScale = new Vector3(rightLen, h, wallThickness);
+                }
+                CreateSolidWall(parent, rightPos, rightScale, $"Wall{side}_Right");
+            }
+
+            // Header above doorway
+            float headerH = h - doorH;
+            if (headerH > 0.1f)
+            {
+                Vector3 headerPos, headerScale;
+                if (isXWall)
+                {
+                    headerPos = new Vector3(xSign * wallOffset, doorH + headerH / 2f, 0);
+                    headerScale = new Vector3(wallThickness, headerH, doorW);
+                }
+                else
+                {
+                    headerPos = new Vector3(0, doorH + headerH / 2f, zSign * wallOffset);
+                    headerScale = new Vector3(doorW, headerH, wallThickness);
+                }
+                CreateSolidWall(parent, headerPos, headerScale, $"Wall{side}_Header");
+            }
+        }
+
+        /// <summary>
+        /// Creates an enclosed corridor between two rooms.
+        /// Corridor has floor, ceiling, and two side walls.
+        /// Start/end points are at the room wall edges so it connects flush to doorways.
+        /// </summary>
+        private GameObject CreateCorridor(Vector3 fromPos, Vector3 fromSize, Vector3 toPos, Vector3 toSize)
         {
             GameObject corridor = new GameObject("Corridor");
-            Vector3 midpoint = (from + to) / 2f;
+
+            // Determine connection points at room edges
+            Vector3 delta = toPos - fromPos;
+            WallSide fromSide = GetWallSide(fromPos, toPos);
+            WallSide toSide = GetWallSide(toPos, fromPos);
+
+            Vector3 startPoint = GetWallEdgePoint(fromPos, fromSize, fromSide);
+            Vector3 endPoint = GetWallEdgePoint(toPos, toSize, toSide);
+
+            Vector3 midpoint = (startPoint + endPoint) / 2f;
             corridor.transform.position = midpoint;
 
-            float length = Vector3.Distance(from, to);
-            float width = 3f;
-            float height = 3f;
+            Vector3 direction = (endPoint - startPoint);
+            float length = direction.magnitude;
+            direction.Normalize();
+
+            // Orient corridor along connection direction
+            if (direction != Vector3.zero)
+                corridor.transform.rotation = Quaternion.LookRotation(direction);
+
+            float width = CORRIDOR_WIDTH;
+            float height = CORRIDOR_HEIGHT;
 
             // Floor
             var floor = GameObject.CreatePrimitive(PrimitiveType.Cube);
             floor.transform.SetParent(corridor.transform);
-            floor.transform.localScale = new Vector3(width, 0.2f, length);
             floor.transform.localPosition = new Vector3(0, -0.1f, 0);
+            floor.transform.localScale = new Vector3(width, 0.2f, length);
+            floor.name = "CorridorFloor";
 
-            // Orient toward target
-            corridor.transform.LookAt(to);
+            // Ceiling
+            var ceilObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            ceilObj.transform.SetParent(corridor.transform);
+            ceilObj.transform.localPosition = new Vector3(0, height, 0);
+            ceilObj.transform.localScale = new Vector3(width + 0.4f, 0.2f, length);
+            ceilObj.name = "CorridorCeiling";
+
+            // Left wall
+            var leftWall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            leftWall.transform.SetParent(corridor.transform);
+            leftWall.transform.localPosition = new Vector3(-width / 2f, height / 2f, 0);
+            leftWall.transform.localScale = new Vector3(0.2f, height, length);
+            leftWall.name = "CorridorWallLeft";
+
+            // Right wall
+            var rightWall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            rightWall.transform.SetParent(corridor.transform);
+            rightWall.transform.localPosition = new Vector3(width / 2f, height / 2f, 0);
+            rightWall.transform.localScale = new Vector3(0.2f, height, length);
+            rightWall.name = "CorridorWallRight";
+
+            // Dim corridor light at midpoint
+            if (length > 5f)
+            {
+                var lightObj = new GameObject("CorridorLight");
+                lightObj.transform.SetParent(corridor.transform);
+                lightObj.transform.localPosition = new Vector3(0, height - 0.3f, 0);
+                var light = lightObj.AddComponent<Light>();
+                light.type = LightType.Point;
+                light.color = new Color(0.6f, 0.8f, 1f);
+                light.intensity = 0.15f;
+                light.range = length * 0.5f;
+            }
 
             return corridor;
+        }
+
+        /// <summary>Get the world position at the edge of a room's wall for corridor connection.</summary>
+        private Vector3 GetWallEdgePoint(Vector3 roomPos, Vector3 roomSize, WallSide side)
+        {
+            switch (side)
+            {
+                case WallSide.East:  return roomPos + new Vector3(roomSize.x / 2f, 0, 0);
+                case WallSide.West:  return roomPos + new Vector3(-roomSize.x / 2f, 0, 0);
+                case WallSide.North: return roomPos + new Vector3(0, 0, roomSize.z / 2f);
+                case WallSide.South: return roomPos + new Vector3(0, 0, -roomSize.z / 2f);
+                default: return roomPos;
+            }
         }
 
         // ====================================================================
