@@ -1,0 +1,26 @@
+{
+    "FileVersion": 3,
+    "EngineAssociation": "5.4",
+    "Category": "",
+    "Description": "Signal Lost - Cooperative Horror Game",
+    "Modules": [
+        {
+            "Name": "SignalLost",
+            "Type": "Runtime",
+            "LoadingPhase": "Default",
+            "AdditionalDependencies": [
+                "Engine",
+                "OnlineSubsystem",
+                "OnlineSubsystemUtils",
+                "VoiceChat"
+            ]
+        }
+    ],
+    "Plugins": [
+        { "Name": "OnlineSubsystemSteam", "Enabled": true },
+        { "Name": "VoiceChat", "Enabled": true },
+        { "Name": "ProceduralMeshComponent", "Enabled": true },
+        { "Name": "Niagara", "Enabled": true },
+        { "Name": "EnhancedInput", "Enabled": true }
+    ]
+}

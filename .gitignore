@@ -1,0 +1,19 @@
+# UE5
+SignalLost/Binaries/
+SignalLost/DerivedDataCache/
+SignalLost/Intermediate/
+SignalLost/Saved/
+SignalLost/.vs/
+SignalLost/*.sln
+SignalLost/*.xcworkspace
+*.VC.db
+*.opensdf
+*.opendb
+*.sdf
+*.suo
+*.pdb
+*.lib
+*.exe
+*.dll
+*.dylib
+*.so
